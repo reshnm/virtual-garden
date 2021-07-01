@@ -36,11 +36,9 @@ var hvpaCrd []byte
 func (o *operation) deployHVPACRD(ctx context.Context) error {
 	o.log.Infof("Deploying hvpa crd")
 
-	newCrd := &v1beta1.CustomResourceDefinition{}
-	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(hvpaCrd), 32)
-	err := decoder.Decode(newCrd)
+	newCrd, err := loadHVPACRD()
 	if err != nil {
-		return fmt.Errorf("failed to decode HVPA CRD: %w", err)
+		return err
 	}
 
 	crd := emptyHVPACRD()
@@ -58,6 +56,7 @@ func (o *operation) deleteHPVACRD(ctx context.Context) error {
 	return client.IgnoreNotFound(o.client.Delete(ctx, emptyHVPACRD()))
 }
 
+// getHVPACRD return the HVPA CRD.
 func (o *operation) getHVPACRD(ctx context.Context) (*v1beta1.CustomResourceDefinition, error) {
 	hvpaCrd := emptyHVPACRD()
 	err := o.client.Get(ctx, client.ObjectKeyFromObject(hvpaCrd), hvpaCrd)
@@ -66,6 +65,18 @@ func (o *operation) getHVPACRD(ctx context.Context) (*v1beta1.CustomResourceDefi
 	}
 
 	return hvpaCrd, nil
+}
+
+// loadHVPACRD loads the HVPA CRD from file resources/hvpa.yaml.
+func loadHVPACRD() (*v1beta1.CustomResourceDefinition, error) {
+	crd := &v1beta1.CustomResourceDefinition{}
+	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(hvpaCrd), 32)
+	err := decoder.Decode(crd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode HVPA CRD: %w", err)
+	}
+
+	return crd, nil
 }
 
 func emptyHVPACRD() *v1beta1.CustomResourceDefinition {
