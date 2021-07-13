@@ -16,6 +16,11 @@ package virtualgarden
 
 import (
 	"context"
+	lsv1alpha1 "github.com/gardener/landscaper/apis/core/v1alpha1"
+	"github.com/gardener/virtual-garden/pkg/api"
+	"github.com/gardener/virtual-garden/pkg/provider"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -25,14 +30,69 @@ import (
 
 var _ = Describe("Deploy Item Controller Reconcile Test", func() {
 
-	It("Should get secret", func() {
+	It("Should create api server secrets", func() {
 		ctx := context.Background()
 		defer ctx.Done()
 
 		namespace := v1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{Name: "test01"},
 		}
-		error := testenv.Client.Create(ctx, &namespace)
-		Expect(error).To(BeNil())
+		err := testenv.Client.Create(ctx, &namespace)
+		Expect(err).To(BeNil())
+
+		imports := getImports()
+
+		infrastructureProvider, err := provider.NewInfrastructureProvider(api.InfrastructureProviderGCP)
+		Expect(err).To(BeNil())
+
+		operation := &operation{
+			client:                 testenv.Client,
+			log:                    testenv.Logger,
+			infrastructureProvider: infrastructureProvider,
+			backupProvider:         nil,
+			namespace:              namespace.Name,
+			imports:                &imports,
+			exports:                api.Exports{},
+			imageRefs:              api.ImageRefs{},
+		}
+
+		Expect(err).To(BeNil())
+
+		checksums := make(map[string]string)
+		err = operation.deployKubeAPIServerCertificates(ctx, "ourTestLoadBalancer", checksums)
+
+		// check secrets
+		objectKey := client.ObjectKey{Name: KubeApiServerSecretNameAggregatorCACertificate, Namespace: namespace.Name}
+		secret := &v1.Secret{}
+		err = testenv.Client.Get(ctx, objectKey, secret)
+		Expect(err).To(BeNil())
 	})
 })
+
+func getImports() api.Imports {
+	return api.Imports{
+		Cluster:        lsv1alpha1.Target{},
+		HostingCluster: api.HostingCluster{},
+		VirtualGarden: api.VirtualGarden{
+			ETCD: nil,
+			KubeAPIServer: &api.KubeAPIServer{
+				Replicas:                 0,
+				SNI:                      nil,
+				DnsAccessDomain:          "com.our.test",
+				GardenerControlplane:     api.GardenerControlplane{},
+				AuditWebhookConfig:       api.AuditWebhookConfig{},
+				AuditWebhookBatchMaxSize: "",
+				SeedAuthorizer:           api.SeedAuthorizer{},
+				HVPAEnabled:              false,
+				HVPA:                     nil,
+				EventTTL:                 nil,
+				OidcIssuerURL:            nil,
+				AdditionalVolumeMounts:   nil,
+				AdditionalVolumes:        nil,
+				HorizontalPodAutoscaler:  nil,
+			},
+			DeleteNamespace:   false,
+			PriorityClassName: "",
+		},
+	}
+}
