@@ -16,6 +16,7 @@ package virtualgarden
 
 import (
 	"context"
+
 	lsv1alpha1 "github.com/gardener/landscaper/apis/core/v1alpha1"
 	"github.com/gardener/virtual-garden/pkg/api"
 	"github.com/gardener/virtual-garden/pkg/provider"
@@ -29,13 +30,26 @@ import (
 )
 
 var _ = Describe("Deploy Item Controller Reconcile Test", func() {
-
 	It("Should create api server secrets", func() {
+		namespaceName := "test01"
+		loadBalancer := "1.2.3.4"
+
+		// checkSecret reads the secret with the specified name and checks that its data section contains the given keys.
+		checkSecret := func(ctx context.Context, secretName string, keys ...string) {
+			objectKey := client.ObjectKey{Name: secretName, Namespace: namespaceName}
+			secret := &v1.Secret{}
+			err := testenv.Client.Get(ctx, objectKey, secret)
+			Expect(err).To(BeNil())
+			for _, key := range keys {
+				Expect(secret.Data).To(HaveKey(key))
+			}
+		}
+
 		ctx := context.Background()
 		defer ctx.Done()
 
 		namespace := v1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: "test01"},
+			ObjectMeta: metav1.ObjectMeta{Name: namespaceName},
 		}
 		err := testenv.Client.Create(ctx, &namespace)
 		Expect(err).To(BeNil())
@@ -50,22 +64,41 @@ var _ = Describe("Deploy Item Controller Reconcile Test", func() {
 			log:                    testenv.Logger,
 			infrastructureProvider: infrastructureProvider,
 			backupProvider:         nil,
-			namespace:              namespace.Name,
+			namespace:              namespaceName,
 			imports:                &imports,
 			exports:                api.Exports{},
 			imageRefs:              api.ImageRefs{},
 		}
 
+		// deploy certificates
+		checksums1 := make(map[string]string)
+		err = operation.deployKubeAPIServerCertificates(ctx, loadBalancer, checksums1)
 		Expect(err).To(BeNil())
 
-		checksums := make(map[string]string)
-		err = operation.deployKubeAPIServerCertificates(ctx, "ourTestLoadBalancer", checksums)
+		checkSecret(ctx, KubeApiServerSecretNameApiServerCACertificate, "ca.key", "ca.crt")
+		checkSecret(ctx, KubeApiServerSecretNameApiServerServerCertificate, "ca.crt", "tls.key", "tls.crt")
+		checkSecret(ctx, KubeApiServerSecretNameKubeControllerManagerCertificate, "ca.crt", "tls.key", "tls.crt", "kubeconfig")
+		checkSecret(ctx, KubeApiServerSecretNameAggregatorCACertificate, "ca.key", "ca.crt")
+		checkSecret(ctx, KubeApiServerSecretNameAggregatorClientCertificate, "tls.key", "tls.crt")
+		checkSecret(ctx, KubeApiServerSecretNameClientAdminCertificate, "ca.crt", "tls.key", "tls.crt", "kubeconfig")
+		checkSecret(ctx, KubeApiServerSecretNameMetricsScraperCertificate, "tls.key", "tls.crt")
 
-		// check secrets
-		objectKey := client.ObjectKey{Name: KubeApiServerSecretNameAggregatorCACertificate, Namespace: namespace.Name}
-		secret := &v1.Secret{}
-		err = testenv.Client.Get(ctx, objectKey, secret)
-		Expect(err).To(BeNil())
+		Expect(checksums1).To(HaveKey(ChecksumKeyKubeAPIServerCA))
+		Expect(checksums1).To(HaveKey(ChecksumKeyKubeAPIServerServer))
+		Expect(checksums1).To(HaveKey(ChecksumKeyKubeControllerManagerClient))
+		Expect(checksums1).To(HaveKey(ChecksumKeyKubeAggregatorCA))
+		Expect(checksums1).To(HaveKey(ChecksumKeyKubeAggregatorClient))
+
+		// redeploy and check that certificates remain unchanged
+		checksums2 := make(map[string]string)
+		Expect(operation.deployKubeAPIServerCertificates(ctx, loadBalancer, checksums2)).To(Succeed())
+		Expect(checksums1).To(Equal(checksums2))
+
+		// delete secrets and check that they are gone
+		Expect(operation.deleteKubeAPIServerCertificates(ctx)).To(Succeed())
+		secretList := &v1.SecretList{}
+		Expect(testenv.Client.List(ctx, secretList)).To(Succeed())
+		Expect(secretList.Items).To(BeEmpty())
 	})
 })
 

@@ -5,10 +5,10 @@
 package localenvtest
 
 import (
-	"github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 
+	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -52,7 +52,7 @@ func New(projectRoot string) (*Environment, error) {
 	}
 
 	return &Environment{
-		Env: &envtest.Environment{},
+		Env:    &envtest.Environment{},
 		Logger: log,
 	}, nil
 }
